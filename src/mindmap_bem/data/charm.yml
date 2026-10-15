@@ -1,0 +1,49 @@
+# label_map: Mapping every CHARM ID to a readable category
+label_map:
+  # --- BRAIN & INTERNAL ---
+  Cerebral_WM: [2, 41, 77]
+  Cerebral_Cortex: [3, 42]
+  Cerebellum_WM: [7, 46]
+  Cerebellum_Cortex: [8, 47]
+  Subcortical_Structures: [10, 11, 12, 13, 16, 17, 18, 26, 28, 49, 50, 51, 52, 53, 54, 58, 60, 80]
+  Vascular_Internal: [30, 62, 31, 63, 502, 514]
+  Nerves_Chiasm: [85, 530]
+  Ventricles: [4, 5, 14, 15, 43, 44, 72]
+  CSF_Fluid: [24, 520]
+  Other_Undetermined: [29]
+
+  # --- BONE & AIR ---
+  Bone: [515, 516]
+  Air_Internal: [501] # Sinuses / Ear canals (physically inside the skull)
+
+  # --- SOFT TISSUE & EXTERNAL
+  Skin_Scalp: [511]
+  Muscle_Eyes: [506, 508]
+  Soft_Tissue_Mucosa: [507, 509]
+  Spinal_Cord: [512]
+
+# --- BEM LAYER DEFINITION
+layers:
+  inner_skull:
+    - Cerebral_WM
+    - Cerebral_Cortex
+    - Cerebellum_WM
+    - Cerebellum_Cortex
+    - Subcortical_Structures
+    - Vascular_Internal
+    - Nerves_Chiasm
+    - Ventricles
+    - CSF_Fluid
+    - Other_Undetermined
+
+  outer_skull:
+    - inner_skull  # Inheritance: starts with everything inside
+    - Bone
+    - Air_Internal
+
+  skin:
+    - outer_skull  # Inheritance: starts with everything above
+    - Skin_Scalp
+    - Muscle_Eyes
+    - Soft_Tissue_Mucosa
+    - Spinal_Cord

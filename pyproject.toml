@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mindmap-bem"
+version = "0.1.0"
+description = "Nested, MNE-compatible BEM surfaces from head segmentations (e.g. SimNIBS CHARM)."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "Nino Herve", email = "herve.nino@gmail.com"},
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "nibabel>=5.0",
+    "pyvista>=0.43",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# MNE is left unpinned on purpose: install your own version first and pip keeps it
+mne = ["mne>=1.6"]
+viz = ["matplotlib>=3.6"]
+tutorials = ["mindmap-bem[mne,viz]", "jupyter", "pyvista[jupyter]"]
+test = ["pytest>=7", "mindmap-bem[mne,viz]"]
+
+[project.scripts]
+mindmap-bem = "mindmap_bem.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mindmap_bem"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
