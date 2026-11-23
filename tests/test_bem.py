@@ -8,7 +8,7 @@ import pytest
 
 import mindmap_bem as mb
 from mindmap_bem.cli import main as cli_main
-from mindmap_bem.masks import close_mask
+from mindmap_bem.masks import close_mask, prepare_mask
 
 # synthetic head: concentric spheres around the world origin
 RADII = {"brain": 28, "bone": 34, "scalp": 40}
@@ -244,8 +244,14 @@ def test_anisotropic_voxels():
     assert r["outer_skull"].min() > r["inner_skull"].max()
 
 
-@pytest.mark.xfail(reason="known limitation: with all floors at the same height, the fold guard holds "
-                          "the inner skull back at the rim of the cut, so it misses its target", strict=True)
+def test_prepare_mask_z_floor_in_mm():
+    # 1.25 mm slices: a 10 mm floor removes the 8 lowest slices, not 10
+    mask = np.ones((4, 4, 40))
+    for zooms, n_removed in [((1.0, 1.0, 1.0), 10), ((1.0, 1.0, 1.25), 8), ((1.0, 1.0, 2.5), 4)]:
+        cut = prepare_mask(mask, z_floor=10.0, zooms=zooms)
+        assert not cut[:, :, :n_removed].any() and cut[:, :, n_removed:].all(), zooms
+
+
 def test_z_floor_in_mm():
     # floor 60 mm above the bottom of a 100 mm FOV centred on 0 -> cap at z = +10 mm
     # (each layer must still enclose the previous one, hence a few mm of slack)
@@ -255,6 +261,22 @@ def test_z_floor_in_mm():
     for layer, mesh in layers.items():
         assert 0 < mesh.points[:, 2].min() < 15, layer
         assert mesh.points[:, 2].max() > EXPECTED[layer] - 2.0
+
+    # all three masks are cut at the same height: only the surface constraint keeps
+    # each layer's bottom outside the previous layer's
+    assert mb.check_bem(layers, verbose=False)
+
+
+def test_start_radius():
+    from mindmap_bem.fitting import start_radius
+
+    mask = np.zeros((60, 60, 60), dtype=bool)
+    mask[10:30, 20:40, 20:40] = True                        # a box, 20 voxels each side
+    zooms = (1.0, 1.0, 2.0)                                 # 20 x 20 x 40 mm
+    center = np.array([19.5, 29.5, 59.0])                   # its centre (grid mm)
+    half_diagonal = np.linalg.norm([10, 10, 20])
+    assert start_radius(mask, zooms, margin=0) == pytest.approx(half_diagonal)
+    assert start_radius(mask, zooms, center, margin=5) == pytest.approx(half_diagonal + 5)
 
 
 def dice(a, b):

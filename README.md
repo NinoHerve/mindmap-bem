@@ -152,9 +152,9 @@ orientation and voxel size works. All lengths are in mm.
 | `closing_radius` | 10 | morphological closing of each mask |
 | `n_smooth` | 20 | Laplacian smoothing iterations per step |
 | `iterations` | 100 | fitting iterations |
-| `inner_gap` | 3 | minimum gap between consecutive layers (each layer stays this far outside the previous one) |
+| `inner_gap` | 2 | minimum gap between consecutive layers: each layer stays this far outside both the previous layer's mask and its fitted surface. Sets the minimum skull thickness |
 | `step_size` | 0.6 | displacement per iteration |
-| `init_radius` | 120 | starting sphere radius around the head's centre of mass |
+| `init_radius` | from the mask | starting sphere radius around the mask's centre of mass; by default just large enough to enclose the mask (+ 5 mm) |
 
 ## Checking and viewing the result
 

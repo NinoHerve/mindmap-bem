@@ -4,9 +4,10 @@ Description: Build nested 3-layer BEM surfaces from a head segmentation.
 
 Layers are fitted from the inside out: the inner skull is pushed away from the
 brain (optional), the outer skull away from the inner skull, and the skin away
-from the outer skull, so each layer should enclose the previous one. The fit
-can still fold or fail to converge, so ``build_bem`` checks the layers
-(``check_bem``) and refuses to write ones that aren't closed and nested.
+from the outer skull. Each layer is kept outside both the previous layer's mask
+and its fitted surface, so it encloses the previous one even where that one
+stopped short of, or went past, its mask. ``build_bem`` still checks the
+layers (``check_bem``) and refuses to write ones that aren't closed and nested.
 
 Author: Nino Herve
 License: MIT
@@ -19,7 +20,7 @@ import numpy as np
 import nibabel as nib
 import pyvista as pv
 
-from mindmap_bem.fitting import fit_surface_to_mask, to_ras
+from mindmap_bem.fitting import fit_surface_to_mask, surface_to_mask, to_ras
 from mindmap_bem.io import check_bem_files, make_volume_info, polydata_transform, ras_to_tkras, write_bem_surfaces
 from mindmap_bem.labels import read_bem_labels
 from mindmap_bem.masks import close_mask, labels_to_mask, prepare_mask, signed_distance_interpolator
@@ -96,6 +97,11 @@ def build_bem_layers(
         brain = close_mask(np.asanyarray(brain_mask.dataobj) > 0.5, closing_radius, zooms)
         brain_interp = signed_distance_interpolator(prepare_mask(brain, zooms=zooms), zooms)
 
+    def enclosed(mesh, interp):
+        """What the next layer must stay outside of: this layer's mask and its fitted surface."""
+        surface = signed_distance_interpolator(surface_to_mask(mesh, seg), zooms)
+        return _union(interp, surface)
+
     # inner skull
     iskull_mesh, iskull_interp = fit_surface_to_mask(
         layer_mask("inner_skull"), inner_interpolator=brain_interp,
@@ -104,13 +110,13 @@ def build_bem_layers(
 
     # outer skull
     oskull_mesh, oskull_interp = fit_surface_to_mask(
-        layer_mask("outer_skull"), inner_interpolator=iskull_interp,
+        layer_mask("outer_skull"), inner_interpolator=enclosed(iskull_mesh, iskull_interp),
         z_floor=z_floors["outer_skull"], n_smooth=n_smooth, **kwargs,
     )
 
     # skin
     skin_mesh, _ = fit_surface_to_mask(
-        layer_mask("skin"), inner_interpolator=oskull_interp,
+        layer_mask("skin"), inner_interpolator=enclosed(oskull_mesh, oskull_interp),
         z_floor=z_floors["skin"], n_smooth=n_smooth, **kwargs,
     )
 
@@ -119,6 +125,16 @@ def build_bem_layers(
         "outer_skull": oskull_mesh,
         "skin": skin_mesh,
     }
+
+
+def _union(*fields):
+    """
+    Signed distance (positive inside) of the union of several volumes: the
+    largest of their distances. Same call signature as each field.
+    """
+    def field(points):
+        return np.max([f(points) for f in fields], axis=0)
+    return field
 
 
 def transform_layers(layers: dict[str, pv.PolyData], trans: np.ndarray) -> dict[str, pv.PolyData]:

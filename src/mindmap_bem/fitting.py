@@ -29,7 +29,7 @@ import numpy as np
 import nibabel as nib
 import pyvista as pv
 from scipy.interpolate import RegularGridInterpolator
-from scipy.ndimage import center_of_mass
+from scipy.ndimage import binary_erosion, center_of_mass
 
 from mindmap_bem.io import polydata_to_faces, surf_to_polydata
 from mindmap_bem.masks import prepare_mask, signed_distance_interpolator
@@ -71,8 +71,8 @@ def fit_surface_to_volume(
     outer_interpolator: RegularGridInterpolator | None = None,
     inner_interpolator: RegularGridInterpolator | None = None,
     outer_gap: float = 3.0,
-    inner_gap: float = 3.0,
-    init_radius: float = 120.0,
+    inner_gap: float = 2.0,
+    init_radius: float | None = None,
     sphere: pv.PolyData | None = None,
 ) -> tuple[pv.PolyData, RegularGridInterpolator]:
     """
@@ -108,10 +108,12 @@ def fit_surface_to_volume(
 
     inner_interpolator: RegularGridInterpolator | None
         Signed distance of a volume the surface must stay outside of, by at
-        least ``inner_gap`` mm.
+        least ``inner_gap`` mm. The 2 mm default is the minimum skull thickness
+        (see ``docs/decisions.md``).
 
-    init_radius: float
-        Radius (mm) of the starting sphere, centred on the mask.
+    init_radius: float | None
+        Radius (mm) of the starting sphere, centred on the mask. Default: just
+        large enough to enclose the mask (``start_radius``).
 
     sphere: pv.PolyData | None
         Unit sphere to deform. Defaults to ``ico_sphere()``.
@@ -134,6 +136,8 @@ def fit_surface_to_volume(
 
     # start with a large sphere outside the mask
     com = np.asarray(center_of_mass(solid_mask)) * zooms
+    if init_radius is None:
+        init_radius = start_radius(solid_mask, zooms, com)
     sphere = ico_sphere() if sphere is None else sphere.copy()
     pts = np.asarray(sphere.points, dtype=float) * init_radius + com
 
@@ -177,6 +181,28 @@ def fit_surface_to_volume(
     sphere.field_data["n_reverted"] = np.array([n_reverted])
 
     return sphere, interpolator
+
+
+def start_radius(
+    mask: np.ndarray,
+    zooms: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    center: np.ndarray | None = None,
+    margin: float = 5.0,
+) -> float:
+    """
+    Radius (mm) of a sphere around ``center`` (grid mm, default: the mask's
+    centre of mass) that encloses every voxel of ``mask``, plus ``margin`` mm.
+
+    Starting the fit just outside the mask keeps the distance the surface has
+    to travel, and how much it is compressed on the way, as small as possible.
+    """
+    zooms = np.asarray(zooms, dtype=float)
+    if center is None:
+        center = np.asarray(center_of_mass(mask)) * zooms
+    # the farthest voxel is on the boundary: corners of the boundary voxels are enough
+    boundary = mask & ~binary_erosion(mask)
+    corners = (np.argwhere(boundary)[:, None, :] + np.array(list(np.ndindex(2, 2, 2))) - 0.5) * zooms
+    return float(np.linalg.norm(corners.reshape(-1, 3) - center, axis=1).max() + margin)
 
 
 def _revert_folds(pts, previous, faces, pairs, A, retries: int = 3) -> tuple[np.ndarray, int]:
