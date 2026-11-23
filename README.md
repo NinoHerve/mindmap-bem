@@ -166,6 +166,11 @@ mb.viz.plot_bem(bem_dir, t1, backend="pyvista")   # or "matplotlib", "mne", "fre
 `plot_bem` takes `fs_t1=<the subject's T1.mgz>` for surfaces written in that frame.
 Always inspect the result before computing a forward model.
 
+To compare the forward models of two BEMs, `mb.common_leadfields` restricts MNE
+fixed-orientation forward solutions to their common sources (average referenced),
+and `mb.rdm` / `mb.lnmag` compute the topography and magnitude differences per
+source. Tutorial 2 shows them in use.
+
 ## Known issues
 
 **The fit can occasionally fold a few triangles** of a surface onto itself, at

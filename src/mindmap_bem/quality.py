@@ -1,6 +1,7 @@
 """
 Module Name: quality.py
-Description: Sanity checks a BEM must pass before computing a forward model.
+Description: Sanity checks a BEM must pass before computing a forward model,
+and metrics to compare the forward models of different BEMs.
 
 Author: Nino Herve
 License: MIT
@@ -117,3 +118,86 @@ def check_bem(layers: dict[str, pv.PolyData], min_gap: float = 1.0, verbose: boo
         print("\n".join(lines))
 
     return ok
+
+
+# --- forward models -------------------------------------------------------
+# Leadfields are (n_channels, n_sources) arrays: one column per source.
+
+def rdm(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """
+    Relative difference measure between two leadfields, per source.
+
+    ``|| a / ||a|| - b / ||b|| ||`` for each column: the difference in
+    topography shape, ignoring magnitude. 0 means identical topographies, 2
+    opposite ones. Compare leadfields with the same reference, e.g. from
+    ``common_leadfields``.
+    """
+    return np.linalg.norm(a/np.linalg.norm(a, axis=0) - b/np.linalg.norm(b, axis=0), axis=0)
+
+
+def lnmag(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """
+    Log magnitude ratio between two leadfields, per source.
+
+    ``ln(||a|| / ||b||)`` for each column. 0 means the same magnitude, > 0
+    that ``a`` is stronger. Compare leadfields with the same reference, e.g.
+    from ``common_leadfields``.
+    """
+    return np.log(np.linalg.norm(a, axis=0)/np.linalg.norm(b, axis=0))
+
+
+def common_leadfields(fwds: dict) -> tuple[dict[str, np.ndarray], list[np.ndarray]]:
+    """
+    Average-referenced leadfields restricted to the sources present in every
+    forward solution.
+
+    Forward solutions computed with different BEMs can keep different sources
+    (MNE drops those closer than ``mindist`` to the inner skull), so they must
+    be restricted to the same sources before comparing them column by column.
+
+    Parameters
+    ----------
+    fwds: dict
+        ``{name: forward}``: MNE fixed-orientation forward solutions (see
+        ``mne.convert_forward_solution(..., force_fixed=True)``) with the same
+        source spaces. MNE itself isn't needed: only their ``"src"`` and
+        ``"sol"`` entries are read.
+
+    Returns
+    -------
+    leadfields: dict
+        ``{name: (n_channels, n_common_sources) array}``, average referenced.
+
+    vertices: list of np.ndarray
+        Vertex numbers of the common sources, one array per source space
+        (e.g. left and right hemisphere), in the order of the columns. Their
+        positions are ``src[i]["rr"][vertices[i]]``.
+    """
+    n_spaces = {len(f["src"]) for f in fwds.values()}
+    if len(n_spaces) != 1:
+        raise ValueError(f"The forward solutions have different numbers of source spaces: {sorted(n_spaces)}")
+    n_spaces = n_spaces.pop()
+
+    for name, f in fwds.items():
+        n_sources = sum(int(s["nuse"]) for s in f["src"])
+        if f["sol"]["data"].shape[1] != n_sources:
+            raise ValueError(
+                f"{name}: {f['sol']['data'].shape[1]} leadfield columns for {n_sources} sources, so not a "
+                "fixed-orientation forward solution (use mne.convert_forward_solution(fwd, force_fixed=True))."
+            )
+
+    vertices = [
+        np.array(sorted(set.intersection(*(set(f["src"][i]["vertno"]) for f in fwds.values()))), dtype=int)
+        for i in range(n_spaces)
+    ]
+
+    leadfields = {}
+    for name, f in fwds.items():
+        offsets = np.cumsum([0] + [int(s["nuse"]) for s in f["src"]])
+        cols = np.concatenate([
+            offsets[i] + np.searchsorted(f["src"][i]["vertno"], vertices[i]) for i in range(n_spaces)
+        ])
+        G = f["sol"]["data"][:, cols]
+        leadfields[name] = G - G.mean(axis=0)          # average reference
+
+    return leadfields, vertices

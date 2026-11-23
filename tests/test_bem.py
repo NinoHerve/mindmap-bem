@@ -315,6 +315,52 @@ def test_vendored_ico_matches_mne():
     np.testing.assert_array_equal(sphere.faces.reshape(-1, 4)[:, 1:], ico["tris"])
 
 
+# --- forward model metrics ------------------------------------------------
+
+def test_rdm_lnmag():
+    rng = np.random.default_rng(0)
+    a = rng.normal(size=(20, 7))
+    assert mb.rdm(a, a).shape == mb.lnmag(a, a).shape == (7,)
+    np.testing.assert_allclose(mb.rdm(a, a), 0, atol=1e-12)
+    np.testing.assert_allclose(mb.lnmag(a, a), 0, atol=1e-12)
+    np.testing.assert_allclose(mb.rdm(a, 2*a), 0, atol=1e-12)          # magnitude only
+    np.testing.assert_allclose(mb.lnmag(a, 2*a), -np.log(2))
+    np.testing.assert_allclose(mb.rdm(a, -a), 2)                      # opposite topographies
+
+
+def fake_forward(vertno, n_channels=5, per_source=1):
+    """Just the parts of an MNE fixed-orientation forward that common_leadfields reads.
+    Column of vertex v in space i: (1000 i + v) * channel number, so that it can be
+    identified after the average reference."""
+    cols = [1000*i + v for i, vs in enumerate(vertno) for v in vs for _ in range(per_source)]
+    data = np.outer(np.arange(1.0, n_channels + 1), cols)
+    src = [{"vertno": np.asarray(vs), "nuse": len(vs)} for vs in vertno]
+    return {"src": src, "sol": {"data": data}}
+
+
+def test_common_leadfields():
+    fwds = {"a": fake_forward([[1, 3, 5, 7], [2, 4, 6]]),
+            "b": fake_forward([[1, 5, 7, 9], [2, 4]])}     # missing 3 and 6, extra 9
+    G, vertices = mb.common_leadfields(fwds)
+
+    assert [v.tolist() for v in vertices] == [[1, 5, 7], [2, 4]]
+    # same sources, in the same order, in both
+    expected = np.array([1, 5, 7, 1002, 1004], dtype=float)
+    for g in G.values():
+        np.testing.assert_allclose(g.mean(axis=0), 0, atol=1e-12)         # average reference
+        np.testing.assert_allclose(g[-1] / (5 - 3), expected)              # last channel: (5 - mean 3) * id
+
+    # one source space
+    G, vertices = mb.common_leadfields({"a": fake_forward([[1, 2, 3]]), "b": fake_forward([[2, 3]])})
+    assert [v.tolist() for v in vertices] == [[2, 3]]
+    assert G["a"].shape == (5, 2)
+
+
+def test_common_leadfields_needs_fixed_orientation():
+    with pytest.raises(ValueError, match="fixed-orientation"):
+        mb.common_leadfields({"a": fake_forward([[1, 2]], per_source=3)})
+
+
 # --- CHARM ----------------------------------------------------------------
 
 @pytest.fixture

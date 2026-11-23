@@ -11,7 +11,7 @@ from mindmap_bem.io import (
     write_bem_surfaces,
 )
 from mindmap_bem.labels import list_presets, read_bem_labels
-from mindmap_bem.quality import check_bem, count_folds, folded_faces, layer_gaps
+from mindmap_bem.quality import check_bem, common_leadfields, count_folds, folded_faces, layer_gaps, lnmag, rdm
 from mindmap_bem import datasets, viz
 
 __version__ = "0.1.0"
@@ -23,6 +23,9 @@ __all__ = [
     "layer_gaps",
     "count_folds",
     "folded_faces",
+    "rdm",
+    "lnmag",
+    "common_leadfields",
     "bem_from_t1",
     "run_charm",
     "charm_labeling",
