@@ -152,7 +152,7 @@ orientation and voxel size works. All lengths are in mm.
 | `closing_radius` | 10 | morphological closing of each mask |
 | `n_smooth` | 20 | Laplacian smoothing iterations per step |
 | `iterations` | 100 | fitting iterations |
-| `max_buffer` | 3 | minimum gap between consecutive layers |
+| `inner_gap` | 3 | minimum gap between consecutive layers (each layer stays this far outside the previous one) |
 | `step_size` | 0.6 | displacement per iteration |
 | `init_radius` | 120 | starting sphere radius around the head's centre of mass |
 

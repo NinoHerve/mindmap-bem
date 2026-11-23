@@ -246,7 +246,10 @@ def plot_comparison(
     bems = {k: read_bem_surfaces(v) if isinstance(v, (str, Path)) else v for k, v in bems.items()}
     t1 = nib.load(t1) if isinstance(t1, (str, Path)) else t1
 
-    import matplotlib.pyplot as plt
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as e:
+        raise ImportError("plot_comparison needs matplotlib: pip install 'mindmap-bem[viz]'") from e
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     styled = {label: (b[layer], colors[i % len(colors)]) for i, (label, b) in enumerate(bems.items())}
 

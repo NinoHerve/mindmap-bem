@@ -156,6 +156,15 @@ def test_plot_slices(seg, layers):
     assert lines >= 3 * 3 * 3          # 3 views x 3 slices x 3 layers
 
 
+def test_plots_without_matplotlib(seg, layers, monkeypatch):
+    monkeypatch.setitem(sys.modules, "matplotlib", None)          # import matplotlib -> ImportError
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
+    with pytest.raises(ImportError, match=r"mindmap-bem\[viz\]"):
+        mb.viz.plot_comparison({"a": layers}, seg)
+    with pytest.raises(ImportError, match=r"mindmap-bem\[viz\]"):
+        mb.viz.plot_slices(layers, seg)
+
+
 def test_fetch_example_t1_cached(tmp_path):
     # no network: a cached file is returned as is
     cached = tmp_path/"ds000117"/"sub-03"/"anat"/"sub-03_T1w.nii.gz"
@@ -595,3 +604,53 @@ def test_cli_build_no_check(monkeypatch, tmp_path):
     assert seen["check"] is True
     cli_main(["build", "seg.nii.gz", "--out", str(tmp_path), "--no-check"])
     assert seen["check"] is False
+
+
+# CLI wiring only: the CLI can't set z_floors, and with the default floors the synthetic
+# head folds with some VTK versions (see test_z_floor_in_mm), hence --no-check
+@pytest.mark.filterwarnings("ignore:Writing BEM layers that fail check_bem")
+def test_cli_build_end_to_end(seg, tmp_path, capsys):
+    import yaml
+    nib.save(seg, tmp_path/"seg.nii.gz")
+    (tmp_path/"labels.yml").write_text(yaml.safe_dump(LABELS))
+    cli_main(["build", str(tmp_path/"seg.nii.gz"), "--out", str(tmp_path/"bem"),
+              "--labels", str(tmp_path/"labels.yml"), "--closing-radius", "3", "--no-check"])
+    assert "BEM surfaces written to" in capsys.readouterr().out
+    assert set(mb.read_bem_surfaces(tmp_path/"bem")) == {"inner_skull", "outer_skull", "skin"}
+
+    with pytest.raises(FileExistsError):                         # no --overwrite
+        cli_main(["build", str(tmp_path/"seg.nii.gz"), "--out", str(tmp_path/"bem"),
+                  "--labels", str(tmp_path/"labels.yml"), "--no-check"])
+
+
+def test_cli_run_arguments(monkeypatch, tmp_path, capsys):
+    seen = {}
+    monkeypatch.setattr("mindmap_bem.cli.bem_from_t1", lambda *a, **kw: seen.update(args=a, **kw))
+    cli_main(["run", "sub01", "t1.nii.gz", "--out", str(tmp_path), "--t2", "t2.nii.gz",
+              "--subjects-dir", "subjects", "--rerun-charm", "--fs-t1", "T1.mgz", "--brain-mask", "brain.nii.gz",
+              "--n-smooth", "5", "--iterations", "50", "--closing-radius", "4", "--overwrite", "--no-check",
+              "--charm-args", "--forceqform", "--usetransform", "x.txt"])
+    assert seen["args"] == ("sub01", "t1.nii.gz", str(tmp_path))
+    assert seen["t2"] == "t2.nii.gz" and seen["subjects_dir"] == "subjects" and seen["rerun_charm"] is True
+    assert seen["fs_t1"] == "T1.mgz" and seen["brain_mask"] == "brain.nii.gz"
+    assert (seen["n_smooth"], seen["iterations"], seen["closing_radius"]) == (5, 50, 4.0)
+    assert seen["overwrite"] is True and seen["check"] is False
+    assert seen["charm_kwargs"] == {"extra_args": ("--forceqform", "--usetransform", "x.txt"), "verbose": True}
+    assert "subjects/sub01/bem" in capsys.readouterr().out
+
+    # defaults
+    cli_main(["run", "sub01", "t1.nii.gz", "--out", str(tmp_path)])
+    assert seen["labels"] == "charm" and seen["t2"] is None and seen["rerun_charm"] is False
+    assert (seen["n_smooth"], seen["iterations"], seen["closing_radius"]) == (20, 100, 10.0)
+    assert seen["charm_kwargs"]["extra_args"] == () and seen["check"] is True
+    assert f"{tmp_path}/bem" in capsys.readouterr().out
+
+
+def test_cli_usage_errors(capsys):
+    with pytest.raises(SystemExit):
+        cli_main([])                                              # no command
+    with pytest.raises(SystemExit):
+        cli_main(["build", "seg.nii.gz"])                         # --out is required
+    with pytest.raises(SystemExit) as e:
+        cli_main(["--help"])
+    assert e.value.code == 0 and "build" in capsys.readouterr().out

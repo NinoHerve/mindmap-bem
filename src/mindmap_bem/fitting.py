@@ -56,8 +56,8 @@ def fit_surface_to_volume(
     z_floor: float | None = None,
     outer_interpolator: RegularGridInterpolator | None = None,
     inner_interpolator: RegularGridInterpolator | None = None,
-    min_buffer: float = 3.0,
-    max_buffer: float = 3.0,
+    outer_gap: float = 3.0,
+    inner_gap: float = 3.0,
     init_radius: float = 120.0,
     sphere: pv.PolyData | None = None,
 ) -> tuple[pv.PolyData, RegularGridInterpolator]:
@@ -90,11 +90,11 @@ def fit_surface_to_volume(
 
     outer_interpolator: RegularGridInterpolator | None
         Signed distance of an envelope the surface must stay inside of, by at
-        least ``min_buffer`` mm.
+        least ``outer_gap`` mm.
 
     inner_interpolator: RegularGridInterpolator | None
         Signed distance of a volume the surface must stay outside of, by at
-        least ``max_buffer`` mm.
+        least ``inner_gap`` mm.
 
     init_radius: float
         Radius (mm) of the starting sphere, centred on the mask.
@@ -131,11 +131,11 @@ def fit_surface_to_volume(
 
         # pull back if we are exiting the "outer" container
         if outer_interpolator is not None:
-            combined_d = np.minimum(combined_d, outer_interpolator(vertices) - min_buffer)
+            combined_d = np.minimum(combined_d, outer_interpolator(vertices) - outer_gap)
 
         # push away from inner container
         if inner_interpolator is not None:
-            combined_d = np.maximum(combined_d, inner_interpolator(vertices) + max_buffer)
+            combined_d = np.maximum(combined_d, inner_interpolator(vertices) + inner_gap)
 
         move = np.clip(combined_d, -2, 2)
 

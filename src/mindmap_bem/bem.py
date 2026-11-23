@@ -54,7 +54,7 @@ def build_bem_layers(
 
     brain_mask: nibabel image | None
         Brain mask on the same voxel grid as ``seg``. If given, the inner skull
-        is kept at least ``max_buffer`` mm outside of it.
+        is kept at least ``inner_gap`` mm outside of it.
 
     closing_radius: float
         Radius (mm) of the morphological closing applied to each mask.
