@@ -147,6 +147,54 @@ def test_count_folds(layers):
     assert not mb.check_bem({**layers, "skin": folded}, verbose=False)
 
 
+def test_fits_carry_the_fold_guard_count(layers):
+    for mesh in layers.values():
+        assert "n_reverted" in mesh.field_data
+
+
+def test_fold_guard_reverts_folds():
+    from mindmap_bem.fitting import _revert_folds, ico_sphere
+    from mindmap_bem.mesh import _adjacency, _edge_face_pairs, _folded
+
+    sphere = ico_sphere()
+    faces = mb.polydata_to_faces(sphere)
+    previous = np.asarray(sphere.points, dtype=float) * 50
+    A, _, _ = _adjacency(faces, len(previous))
+    pairs = _edge_face_pairs(faces)
+
+    # a step that moves one vertex sideways past its neighbour folds its triangles
+    pts = previous * 1.01
+    neighbour = faces[np.any(faces == 0, axis=1)][0]
+    neighbour = neighbour[neighbour != 0][0]
+    pts[0] = previous[neighbour] + (previous[neighbour] - previous[0])
+    assert _folded(pts, faces, pairs).any()
+
+    fixed, n = _revert_folds(pts, previous, faces, pairs, A)
+    assert not _folded(fixed, faces, pairs).any()
+    assert 0 < n < len(pts)                                   # only the fold was undone
+    assert np.array_equal(fixed[0], previous[0])
+    far = np.linalg.norm(previous - previous[0], axis=1) > 20
+    assert np.allclose(fixed[far], pts[far])                  # the rest keeps its step
+
+
+def test_mesh_ops_match_vtk(layers):
+    import pyvista as pv
+    from mindmap_bem.mesh import _adjacency, _laplacian_smooth, _vertex_normals
+
+    mesh = layers["skin"]                  # in scanner RAS, outward winding
+    faces, pts = mb.polydata_to_faces(mesh), np.asarray(mesh.points, dtype=float)
+    vtk_normals = mesh.compute_normals(consistent_normals=False, auto_orient_normals=False).point_data["Normals"]
+    assert np.einsum("ij,ij->i", _vertex_normals(pts, faces), vtk_normals).min() > 0.999
+
+    # Laplacian smoothing: the same update as VTK's, on a mesh that is not smooth yet
+    rough = pts + np.random.default_rng(0).normal(scale=0.5, size=pts.shape)
+    A, deg, _ = _adjacency(faces, len(pts))
+    ours = _laplacian_smooth(rough, A, deg, n_iter=20, relaxation=0.05)
+    theirs = np.asarray(pv.PolyData(rough, mesh.faces).smooth(n_iter=20, relaxation_factor=0.05).points)
+    moved = np.median(np.linalg.norm(theirs - rough, axis=1))
+    assert np.median(np.linalg.norm(ours - theirs, axis=1)) < 0.05 * moved
+
+
 def test_plot_slices(seg, layers):
     pytest.importorskip("matplotlib")
     import matplotlib
@@ -196,8 +244,8 @@ def test_anisotropic_voxels():
     assert r["outer_skull"].min() > r["inner_skull"].max()
 
 
-@pytest.mark.xfail(reason="known bug: the fit can fold at the z floor, depending on the VTK version "
-                          "(see the fold bug in the TODO list)", strict=False)
+@pytest.mark.xfail(reason="known limitation: with all floors at the same height, the fold guard holds "
+                          "the inner skull back at the rim of the cut, so it misses its target", strict=True)
 def test_z_floor_in_mm():
     # floor 60 mm above the bottom of a 100 mm FOV centred on 0 -> cap at z = +10 mm
     # (each layer must still enclose the previous one, hence a few mm of slack)

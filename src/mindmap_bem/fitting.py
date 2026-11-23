@@ -6,8 +6,14 @@ The surface shrink-wraps the mask by following a smoothed signed distance
 field, optionally constrained to stay inside an outer envelope and/or outside
 an inner one. Every layer is the same deformed icosahedron, so its
 connectivity is always closed and manifold, and nesting is enforced during the
-fit rather than repaired afterwards. The fit can still fold or miss its target,
-so ``build_bem`` checks the result (``check_bem``) before writing it.
+fit rather than repaired afterwards.
+
+The fit cannot fold: after each iteration, any part of the surface that
+folded onto itself is put back where it was (the fold guard). A region the
+guard keeps holding back can miss its target, so ``build_bem`` still checks
+the result (``check_bem``) before writing it. Normals and smoothing are
+computed in numpy (``mesh.py``), so the result doesn't depend on the VTK
+version.
 
 Fitting happens in "grid mm" coordinates (voxel index * voxel size) of a
 RAS-reoriented volume, so all parameters are in mm whatever the voxel size or
@@ -25,8 +31,16 @@ import pyvista as pv
 from scipy.interpolate import RegularGridInterpolator
 from scipy.ndimage import center_of_mass
 
-from mindmap_bem.io import surf_to_polydata
+from mindmap_bem.io import polydata_to_faces, surf_to_polydata
 from mindmap_bem.masks import prepare_mask, signed_distance_interpolator
+from mindmap_bem.mesh import (
+    _adjacency,
+    _edge_face_pairs,
+    _folded,
+    _laplacian_smooth,
+    _taubin_smooth,
+    _vertex_normals,
+)
 
 
 def ico_sphere() -> pv.PolyData:
@@ -105,7 +119,9 @@ def fit_surface_to_volume(
     Returns
     -------
     sphere: pv.PolyData
-        Fitted surface (grid mm).
+        Fitted surface (grid mm). ``field_data["n_reverted"]``: number of
+        vertex moves the fold guard undid, summed over the iterations (0 for
+        most heads).
 
     interpolator: RegularGridInterpolator
         Signed distance field of the mask, to constrain the next layer.
@@ -119,40 +135,73 @@ def fit_surface_to_volume(
     # start with a large sphere outside the mask
     com = np.asarray(center_of_mass(solid_mask)) * zooms
     sphere = ico_sphere() if sphere is None else sphere.copy()
-    sphere.points = sphere.points * init_radius + com
+    pts = np.asarray(sphere.points, dtype=float) * init_radius + com
+
+    # connectivity never changes: everything that depends on it only once
+    faces = polydata_to_faces(sphere)
+    A, deg, _ = _adjacency(faces, len(pts))
+    pairs = _edge_face_pairs(faces)
+    n_reverted = 0
 
     for i in range(iterations):
-        sphere.compute_normals(inplace=True, consistent_normals=False)
-        vertices = sphere.points
-        normals = sphere.point_data["Normals"]
+        previous = pts
+        normals = _vertex_normals(pts, faces)
 
         # current move based on target mask
-        combined_d = interpolator(vertices)
+        combined_d = interpolator(pts)
 
         # pull back if we are exiting the "outer" container
         if outer_interpolator is not None:
-            combined_d = np.minimum(combined_d, outer_interpolator(vertices) - outer_gap)
+            combined_d = np.minimum(combined_d, outer_interpolator(pts) - outer_gap)
 
         # push away from inner container
         if inner_interpolator is not None:
-            combined_d = np.maximum(combined_d, inner_interpolator(vertices) + inner_gap)
-
-        move = np.clip(combined_d, -2, 2)
+            combined_d = np.maximum(combined_d, inner_interpolator(pts) + inner_gap)
 
         # damping to prevent jitter
         dampening = np.clip(np.abs(combined_d) / 5.0, 0.2, 1.0)
-        sphere.points += normals * (move[:, np.newaxis] * step_size * dampening[:, np.newaxis])
+        amount = np.clip(combined_d, -2, 2) * step_size * dampening
+        pts = pts + normals * amount[:, None]
 
-        # smooth at each iteration to preserve manifold
-        smoothed = sphere.smooth(n_iter=n_smooth, relaxation_factor=0.05)
-        sphere.points = smoothed.points        # keeps sphere.faces untouched
-
+        # smooth at each iteration to keep the mesh regular
+        pts = _laplacian_smooth(pts, A, deg, n_smooth, relaxation=0.05)
         if i % 10 == 0:
             # prevent triangle stretching in complex areas like the skull base
-            taubin = sphere.smooth_taubin(n_iter=5, pass_band=0.1)
-            sphere.points = taubin.points
+            pts = _taubin_smooth(pts, A, deg, n_iter=5)
+
+        # fold guard: undo this iteration where it folded the surface
+        pts, n = _revert_folds(pts, previous, faces, pairs, A)
+        n_reverted += n
+
+    sphere.points = pts                    # keeps sphere.faces untouched
+    sphere.field_data["n_reverted"] = np.array([n_reverted])
 
     return sphere, interpolator
+
+
+def _revert_folds(pts, previous, faces, pairs, A, retries: int = 3) -> tuple[np.ndarray, int]:
+    """
+    Put the vertices of folded triangles back where they were before the
+    iteration (``previous``, fold-free), growing the reverted region by one
+    ring of neighbours per retry, and the whole mesh as a last resort.
+
+    Returns the fold-free positions and the number of vertices reverted.
+    """
+    folded = _folded(pts, faces, pairs)
+    if not folded.any():
+        return pts, 0
+
+    revert = np.zeros(len(pts), dtype=bool)
+    revert[faces[folded].ravel()] = True
+    for _ in range(retries):
+        pts = np.where(revert[:, None], previous, pts)
+        folded = _folded(pts, faces, pairs)
+        if not folded.any():
+            return pts, int(revert.sum())
+        revert[faces[folded].ravel()] = True
+        revert |= (A @ revert.astype(float)) > 0          # and their neighbours
+
+    return previous, len(pts)
 
 
 def grid_to_world(img: nib.spatialimages.SpatialImage) -> np.ndarray:

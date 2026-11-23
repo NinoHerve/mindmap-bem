@@ -11,6 +11,7 @@ import numpy as np
 import pyvista as pv
 
 from mindmap_bem.io import polydata_to_faces
+from mindmap_bem.mesh import _edge_face_pairs, _folded
 
 PAIRS = (("inner_skull", "outer_skull"), ("outer_skull", "skin"))
 
@@ -66,25 +67,7 @@ def folded_faces(mesh: pv.PolyData, max_angle: float = 120.0) -> np.ndarray:
     """
     faces = polydata_to_faces(mesh)
     pts = np.asarray(mesh.points, dtype=float)
-    normals = np.cross(pts[faces[:, 1]] - pts[faces[:, 0]], pts[faces[:, 2]] - pts[faces[:, 0]])
-    length = np.linalg.norm(normals, axis=1, keepdims=True)
-    normals = np.divide(normals, length, out=np.zeros_like(normals), where=length > 0)
-
-    # each edge as a sorted vertex pair, with the face it belongs to
-    edges = np.sort(np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)
-    owner = np.tile(np.arange(len(faces)), 3)
-    order = np.lexsort((edges[:, 1], edges[:, 0]))
-    edges, owner = edges[order], owner[order]
-
-    # consecutive equal edges are the two faces sharing it
-    shared = np.all(edges[1:] == edges[:-1], axis=1)
-    a, b = owner[:-1][shared], owner[1:][shared]
-    folded = np.einsum("ij,ij->i", normals[a], normals[b]) < np.cos(np.radians(max_angle))
-
-    out = np.zeros(len(faces), dtype=bool)
-    out[a[folded]] = out[b[folded]] = True
-
-    return out
+    return _folded(pts, faces, _edge_face_pairs(faces), max_angle)
 
 
 def _bem_report(layers: dict[str, pv.PolyData], min_gap: float = 1.0) -> tuple[bool, list[str]]:

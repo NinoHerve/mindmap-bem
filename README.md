@@ -193,23 +193,21 @@ skin, _ = mb.fit_surface_to_mask(nib.Nifti1Image(mb.close_mask(mask, 10, zooms).
 
 ## Known issues
 
-**The fit can occasionally fold a few triangles** of a surface onto itself, at
-sharp concave corners such as the skull base. A folded surface is still closed
-and can still be nested, so MNE accepts it without a warning. Whether a fit
-folds depends on small numerical differences, including the VTK version: we
-saw it with VTK 9.3.1 (1 of the 16 subjects of ds000117, and the synthetic head
-of `test_z_floor_in_mm`), but not with VTK 9.4.2 or 9.7.2.
+**Sharp concave corners, such as the skull base, can hold the fit back.** There,
+moving along the normals would fold a few triangles of the surface onto
+itself. The fit prevents this: after each iteration it undoes the moves that
+folded the surface (the fold guard), so the surfaces it returns never fold.
+The count of undone moves is in `layer.field_data["n_reverted"]`. It is 0 for
+most heads; on ds000117, 2 of 16 subjects needed it, with no other effect than a
+few thinner triangles at the skull base.
 
-`build_bem` checks every BEM before writing it and raises an error instead of
-writing folded or intersecting surfaces (`check=False` / `--no-check` writes
-them anyway, for inspection). If that happens, first try a recent VTK (≥ 9.4):
+A region the guard keeps holding back can stay short of its target, and in the
+worst case cross the next layer. `build_bem` checks every BEM before writing
+it and raises an error instead of writing intersecting surfaces (`check=False`
+/ `--no-check` writes them anyway, for inspection). If that happens, try other
+`z_floors` first: the rim of the cut is the usual corner.
 
-```bash
-python -c "import vtk; print(vtk.__version__)"
-pip install -U pyvista vtk
-```
-
-A fit that cannot fold is planned.
+Background on these and other design choices: [`docs/decisions.md`](https://github.com/NinoHerve/mindmap-bem/blob/main/docs/decisions.md).
 
 ## Tests
 
