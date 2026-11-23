@@ -26,8 +26,10 @@ Extracted from [mindmap](https://github.com/NinoHerve/mindmap).
 ## Install
 
 ```bash
-pip install "mindmap-bem @ git+https://github.com/NinoHerve/mindmap-bem"
+pip install mindmap-bem                  # or "mindmap-bem[tutorials]" to run the tutorials
 ```
+
+The development version: `pip install "mindmap-bem @ git+https://github.com/NinoHerve/mindmap-bem"`.
 
 Core dependencies: numpy, scipy, nibabel, pyvista, pyyaml. Optional extras:
 
