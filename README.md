@@ -45,8 +45,8 @@ already have a segmentation.
 
 | notebook | what | data (downloaded on first run) |
 |---|---|---|
-| [`01_bem_from_t1`](tutorials/01_bem_from_t1.ipynb) | T1 → CHARM → BEM → quality check → viewer of your choice → MNE | OpenNeuro ds000117 T1 (11 MB) |
-| [`02_comparison_with_mne`](tutorials/02_comparison_with_mne.ipynb) | mindmap-bem vs MNE's watershed and FLASH BEMs: geometry and EEG forward models | MNE `sample` (1.5 GB) |
+| [`01_bem_from_t1`](https://github.com/NinoHerve/mindmap-bem/blob/main/tutorials/01_bem_from_t1.ipynb) | T1 → CHARM → BEM → quality check → viewer of your choice → MNE | OpenNeuro ds000117 T1 (11 MB) |
+| [`02_comparison_with_mne`](https://github.com/NinoHerve/mindmap-bem/blob/main/tutorials/02_comparison_with_mne.ipynb) | mindmap-bem vs MNE's watershed and FLASH BEMs: geometry and EEG forward models | MNE `sample` (1.5 GB) |
 
 Data go to `~/mindmap_bem_data` (or `$MINDMAP_BEM_DATA`).
 
@@ -135,7 +135,7 @@ layers:
   skin:        [outer_skull, Scalp]
 ```
 
-The bundled `charm` preset ([`data/charm.yml`](src/mindmap_bem/data/charm.yml))
+The bundled `charm` preset ([`data/charm.yml`](https://github.com/NinoHerve/mindmap-bem/blob/main/src/mindmap_bem/data/charm.yml))
 maps CHARM's detailed `segmentation/labeling.nii.gz` (not `final_tissues.nii.gz`).
 Use `--labels my_labels.yml` with `build` for other segmenters.
 

@@ -136,6 +136,13 @@ def setup_mne_subject(
     return t1_mgz
 
 
+def check_bem_files(folder: str | Path, overwrite: bool = False):
+    """Raise ``FileExistsError`` if ``folder`` has BEM surfaces and ``overwrite`` is False."""
+    existing = [str(Path(folder)/fname) for fname in BEM_FILES.values() if (Path(folder)/fname).exists()]
+    if existing and not overwrite:
+        raise FileExistsError(f"BEM surfaces already exist (use overwrite=True): {existing}")
+
+
 def write_bem_surfaces(
     folder: str | Path,
     layers: dict[str, pv.PolyData],
@@ -152,13 +159,10 @@ def write_bem_surfaces(
     that volume's FreeSurfer tkRAS.
     """
     folder = Path(folder)
+    check_bem_files(folder, overwrite)
     folder.mkdir(parents=True, exist_ok=True)
 
     paths = {layer: folder/fname for layer, fname in BEM_FILES.items()}
-    existing = [str(p) for p in paths.values() if p.exists()]
-    if existing and not overwrite:
-        raise FileExistsError(f"BEM surfaces already exist (use overwrite=True): {existing}")
-
     for layer, path in paths.items():
         nib.freesurfer.io.write_geometry(
             path, layers[layer].points, polydata_to_faces(layers[layer]), volume_info=volume_info,

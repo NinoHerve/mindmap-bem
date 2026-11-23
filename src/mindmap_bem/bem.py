@@ -19,7 +19,7 @@ import nibabel as nib
 import pyvista as pv
 
 from mindmap_bem.fitting import fit_surface_to_mask, to_ras
-from mindmap_bem.io import make_volume_info, polydata_transform, ras_to_tkras, write_bem_surfaces
+from mindmap_bem.io import check_bem_files, make_volume_info, polydata_transform, ras_to_tkras, write_bem_surfaces
 from mindmap_bem.labels import read_bem_labels
 from mindmap_bem.masks import close_mask, labels_to_mask, prepare_mask, signed_distance_interpolator
 
@@ -167,6 +167,9 @@ def build_bem(
     layers: dict[str, pv.PolyData]
         Layers in the output frame (mm).
     """
+    # fail now rather than after the fit
+    check_bem_files(out_dir, overwrite)
+
     seg = nib.load(seg) if isinstance(seg, (str, Path)) else seg
     if isinstance(brain_mask, (str, Path)):
         brain_mask = nib.load(brain_mask)

@@ -4,13 +4,26 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mindmap-bem"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Nested, MNE-compatible BEM surfaces from head segmentations (e.g. SimNIBS CHARM)."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     {name = "Nino Herve", email = "herve.nino@gmail.com"},
+]
+keywords = ["EEG", "MEG", "BEM", "forward model", "MNE", "MRI", "head segmentation", "SimNIBS", "CHARM"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Image Processing",
 ]
 dependencies = [
     "numpy>=1.24",
@@ -27,8 +40,21 @@ viz = ["matplotlib>=3.6"]
 tutorials = ["mindmap-bem[mne,viz]", "jupyter", "pyvista[jupyter]"]
 test = ["pytest>=7", "mindmap-bem[mne,viz]"]
 
+[project.urls]
+Homepage = "https://github.com/NinoHerve/mindmap-bem"
+Source = "https://github.com/NinoHerve/mindmap-bem"
+Issues = "https://github.com/NinoHerve/mindmap-bem/issues"
+Tutorials = "https://github.com/NinoHerve/mindmap-bem/tree/main/tutorials"
+
 [project.scripts]
 mindmap-bem = "mindmap_bem.cli:main"
+
+[tool.hatch.version]
+path = "src/mindmap_bem/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+# tutorials (~4 MB with outputs) stay on GitHub
+exclude = ["tutorials"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mindmap_bem"]

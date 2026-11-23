@@ -13,6 +13,8 @@ from mindmap_bem.labels import list_presets
 
 
 def _add_fit_args(parser):
+    parser.add_argument("--labels", default="charm",
+                        help=f"Label preset ({', '.join(list_presets())}) or YAML config path.")
     parser.add_argument("--fs-t1",
                         help="FreeSurfer mri/T1.mgz: write surfaces in that recon's tkRAS "
                              "(default: scanner RAS, no FreeSurfer needed).")
@@ -25,7 +27,7 @@ def _add_fit_args(parser):
 
 def _fit_kwargs(args):
     return dict(
-        fs_t1=args.fs_t1, brain_mask=args.brain_mask, overwrite=args.overwrite,
+        labels=args.labels, fs_t1=args.fs_t1, brain_mask=args.brain_mask, overwrite=args.overwrite,
         n_smooth=args.n_smooth, iterations=args.iterations, closing_radius=args.closing_radius,
     )
 
@@ -51,8 +53,6 @@ def main(argv=None):
     build = sub.add_parser("build", help="Fit BEM surfaces to an existing segmentation.")
     build.add_argument("seg", help="Integer label volume (e.g. CHARM m2m_<sub>/segmentation/labeling.nii.gz).")
     build.add_argument("--out", required=True, help="Output folder, e.g. $SUBJECTS_DIR/<subject>/bem.")
-    build.add_argument("--labels", default="charm",
-                       help=f"Label preset ({', '.join(list_presets())}) or YAML config path.")
     _add_fit_args(build)
 
     args = parser.parse_args(argv)
@@ -67,7 +67,7 @@ def main(argv=None):
         print(f"BEM surfaces written to {where}")
 
     elif args.command == "build":
-        build_bem(args.seg, args.out, labels=args.labels, **_fit_kwargs(args))
+        build_bem(args.seg, args.out, **_fit_kwargs(args))
         print(f"BEM surfaces written to {args.out}")
 
 

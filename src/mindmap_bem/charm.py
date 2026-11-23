@@ -18,7 +18,7 @@ import nibabel as nib
 import pyvista as pv
 
 from mindmap_bem.bem import build_bem
-from mindmap_bem.io import setup_mne_subject
+from mindmap_bem.io import check_bem_files, setup_mne_subject
 
 SIMNIBS_URL = "https://simnibs.github.io/simnibs/build/html/installation/simnibs_installer.html"
 
@@ -142,6 +142,7 @@ def bem_from_t1(
     fs_t1: str | Path | None = None,
     bem_dir: str | Path | None = None,
     subjects_dir: str | Path | None = None,
+    labels: str | Path | dict = "charm",
     overwrite: bool = False,
     rerun_charm: bool = False,
     charm_kwargs: dict | None = None,
@@ -173,6 +174,10 @@ def bem_from_t1(
         which is created from ``t1`` if missing (see ``setup_mne_subject``).
         Recommended for use with MNE; overrides ``fs_t1`` and ``bem_dir``.
 
+    labels: str | Path | dict
+        Mapping of CHARM's labels to the BEM layers: the bundled ``"charm"``
+        preset, or a YAML config (see ``mindmap_bem.labels``).
+
     overwrite: bool
         Overwrite existing BEM surfaces.
 
@@ -185,14 +190,18 @@ def bem_from_t1(
     kwargs: dict
         Passed to ``build_bem`` / ``build_bem_layers``.
     """
+    if subjects_dir is not None:
+        bem_dir = Path(subjects_dir)/subject/"bem"
+    bem_dir = Path(out_dir)/"bem" if bem_dir is None else bem_dir
+    # fail now rather than after CHARM and the fit
+    check_bem_files(bem_dir, overwrite)
+
     m2m_dir = run_charm(subject, t1, out_dir, t2=t2, overwrite=rerun_charm, **(charm_kwargs or {}))
     if subjects_dir is not None:
         fs_t1 = setup_mne_subject(t1, subjects_dir, subject)
-        bem_dir = Path(subjects_dir)/subject/"bem"
-    bem_dir = Path(out_dir)/"bem" if bem_dir is None else bem_dir
 
     return build_bem(
-        charm_labeling(m2m_dir), bem_dir, labels="charm", fs_t1=fs_t1, overwrite=overwrite, **kwargs,
+        charm_labeling(m2m_dir), bem_dir, labels=labels, fs_t1=fs_t1, overwrite=overwrite, **kwargs,
     )
 
 
