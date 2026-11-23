@@ -367,7 +367,8 @@ def test_common_leadfields_needs_fixed_orientation():
 def fake_charm(tmp_path, seg):
     """
     Executable standing in for SimNIBS' charm: logs its argv, prints progress and
-    writes a labeling. Subject "fail" makes it exit with an error instead.
+    writes a labeling. Subject "fail" makes it exit with an error instead; subject
+    "hang" starts a child process, writes both pids to pids.txt and never finishes.
     """
     label_src = tmp_path/"labels_src.nii.gz"
     nib.save(seg, label_src)
@@ -382,6 +383,12 @@ def fake_charm(tmp_path, seg):
         "if sys.argv[1] == 'fail':\n"
         "    print('charm error', file=sys.stderr)\n"
         "    sys.exit(3)\n"
+        "if sys.argv[1] == 'hang':\n"
+        "    import os, subprocess, time\n"
+        "    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'])\n"
+        "    pathlib.Path('pids.tmp').write_text(f'{os.getpid()} {child.pid}')\n"
+        "    os.replace('pids.tmp', 'pids.txt')\n"
+        "    time.sleep(600)\n"
         "seg = pathlib.Path('m2m_' + sys.argv[1])/'segmentation'\n"
         "seg.mkdir(parents=True, exist_ok=True)\n"
         f"shutil.copy({str(label_src)!r}, seg/'labeling.nii.gz')\n"
@@ -441,6 +448,86 @@ def test_run_charm_failure_shows_log(fake_charm, tmp_path):
     cmd, _ = fake_charm
     with pytest.raises(RuntimeError, match="(?s)exit code 3.*charm error"):
         mb.run_charm("fail", tmp_path/"t1.nii.gz", tmp_path/"out", charm_cmd=cmd)
+
+
+def _wait_for(path, timeout=20.0):
+    import time
+    end = time.monotonic() + timeout
+    while not path.exists():
+        assert time.monotonic() < end, f"{path} never appeared"
+        time.sleep(0.05)
+    return [int(pid) for pid in path.read_text().split()]
+
+
+def _gone(pid, timeout=20.0):
+    """True once ``pid`` no longer exists (zombies are reaped by init quickly)."""
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+posix_only = pytest.mark.skipif(not hasattr(os, "killpg"), reason="process groups are POSIX only")
+
+
+@posix_only
+def test_run_charm_interrupt_stops_charm(fake_charm, tmp_path):
+    import _thread
+    import threading
+    cmd, _ = fake_charm
+    out = tmp_path/"out"
+    pids = []
+
+    def interrupt():
+        pids.extend(_wait_for(out/"pids.txt"))
+        _thread.interrupt_main()               # what Ctrl+C / a Jupyter interrupt does
+
+    threading.Thread(target=interrupt, daemon=True).start()
+    with pytest.raises(KeyboardInterrupt):
+        mb.run_charm("hang", tmp_path/"t1.nii.gz", out, charm_cmd=cmd)
+
+    assert len(pids) == 2 and all(_gone(pid) for pid in pids)     # CHARM and its child
+    assert not mb.charm._RUNNING
+
+
+@posix_only
+def test_stop_charm_from_main_thread(fake_charm, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    cmd, _ = fake_charm
+    out = tmp_path/"out"
+
+    with ThreadPoolExecutor(1) as pool:
+        future = pool.submit(mb.run_charm, "hang", tmp_path/"t1.nii.gz", out, charm_cmd=cmd)
+        pids = _wait_for(out/"pids.txt")
+        assert mb.stop_charm() == 1
+        with pytest.raises(RuntimeError, match="stopped"):
+            future.result(timeout=30)
+
+    assert all(_gone(pid) for pid in pids)
+    assert not mb.charm._RUNNING and mb.stop_charm() == 0
+
+
+def test_run_charm_log(fake_charm, tmp_path):
+    cmd, _ = fake_charm
+    t1, out = tmp_path/"t1.nii.gz", tmp_path/"out"
+
+    log = tmp_path/"logs"/"sub06_charm.log"                      # folder created
+    mb.run_charm("sub06", t1, out, charm_cmd=cmd, log=log)
+    assert "charm progress" in log.read_text()
+    assert not (out/"charm_sub06.log").exists()
+
+    with pytest.raises(RuntimeError, match=f"(?s){log.name}.*charm error"):
+        mb.run_charm("fail", t1, out, charm_cmd=cmd, log=log)
+
+    with pytest.raises(ValueError, match="must not be inside"):
+        mb.run_charm("sub07", t1, out, charm_cmd=cmd, log=out/"m2m_sub07"/"charm.log")
+    with pytest.raises(ValueError, match="verbose"):
+        mb.run_charm("sub07", t1, out, charm_cmd=cmd, log=log, verbose=True)
 
 
 def test_run_charm_missing(tmp_path):

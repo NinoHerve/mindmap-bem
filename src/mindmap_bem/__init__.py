@@ -1,7 +1,7 @@
 """Nested, MNE-compatible BEM surfaces from head segmentations."""
 
 from mindmap_bem.bem import build_bem, build_bem_layers, transform_layers
-from mindmap_bem.charm import bem_from_t1, charm_labeling, run_charm
+from mindmap_bem.charm import bem_from_t1, charm_labeling, run_charm, stop_charm
 from mindmap_bem.fitting import fit_surface_to_mask, fit_surface_to_volume
 from mindmap_bem.io import (
     make_volume_info,
@@ -28,6 +28,7 @@ __all__ = [
     "common_leadfields",
     "bem_from_t1",
     "run_charm",
+    "stop_charm",
     "charm_labeling",
     "build_bem",
     "build_bem_layers",

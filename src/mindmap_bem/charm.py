@@ -10,8 +10,11 @@ Author: Nino Herve
 License: MIT
 """
 
+import os
 import shutil
+import signal
 import subprocess
+import threading
 from pathlib import Path
 
 import nibabel as nib
@@ -26,9 +29,104 @@ SIMNIBS_URL = "https://simnibs.github.io/simnibs/build/html/installation/simnibs
 DEFAULT_CHARM_STEPS = ("--initatlas", "--segment")
 
 
+# CHARM processes started by run_charm and still running, so that stop_charm can
+# reach them from another thread
+_RUNNING: set[subprocess.Popen] = set()
+_STOPPED: set[subprocess.Popen] = set()
+_LOCK = threading.Lock()
+
+
 def charm_labeling(m2m_dir: str | Path) -> Path:
     """Path of CHARM's detailed label volume inside an ``m2m_<subject>`` folder."""
     return Path(m2m_dir)/"segmentation"/"labeling.nii.gz"
+
+
+def stop_charm() -> int:
+    """
+    Stop every CHARM started by ``run_charm`` that is still running.
+
+    ``run_charm`` stops its CHARM itself when it is interrupted (Ctrl+C,
+    Jupyter interrupt) or fails. But an interrupt only reaches the main
+    thread: if ``run_charm`` runs in worker threads (e.g. several subjects in
+    parallel), call this from the main thread when interrupted. The stopped
+    ``run_charm`` calls raise a ``RuntimeError``.
+
+    Returns
+    -------
+    n: int
+        Number of CHARM runs stopped.
+    """
+    with _LOCK:
+        procs = [p for p in _RUNNING if p.poll() is None]
+        _STOPPED.update(procs)
+    for proc in procs:
+        _kill(proc)
+
+    return len(procs)
+
+
+def _kill(proc: subprocess.Popen, timeout: float = 10.0):
+    """Stop a process and everything it started (its process group)."""
+    if not hasattr(os, "killpg"):       # Windows: no process groups, stop CHARM itself
+        proc.terminate()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        return
+
+    def signal_group(sig):
+        try:
+            os.killpg(proc.pid, sig)
+            return True
+        except ProcessLookupError:      # nothing left in the group
+            return False
+
+    signal_group(signal.SIGTERM)
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        pass
+    # CHARM's own child processes may outlive it a moment
+    for _ in range(20):
+        if not signal_group(0):
+            break
+        threading.Event().wait(0.1)
+    signal_group(signal.SIGKILL)
+    proc.wait()
+
+
+def _run(cmd: list[str], cwd: Path, stdout, m2m_dir: Path) -> tuple[int, bool]:
+    """
+    Run CHARM in its own process group, stopping it (and its child processes)
+    if Python is interrupted or fails meanwhile.
+
+    Returns its exit code and whether ``stop_charm`` stopped it.
+    """
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=stdout, stderr=None if stdout is None else subprocess.STDOUT,
+                            start_new_session=True)
+    with _LOCK:
+        _RUNNING.add(proc)
+    try:
+        # poll rather than block, so an interrupt is handled within 0.5 s
+        while True:
+            try:
+                code = proc.wait(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+    except BaseException:                 # Ctrl+C, Jupyter interrupt, any error
+        _kill(proc)
+        print(f"CHARM stopped. The unfinished {m2m_dir} is redone (--forcerun) on the next run.")
+        raise
+    finally:
+        with _LOCK:
+            _RUNNING.discard(proc)
+            stopped = proc in _STOPPED
+            _STOPPED.discard(proc)
+
+    return code, stopped
 
 
 def run_charm(
@@ -41,11 +139,15 @@ def run_charm(
     overwrite: bool = False,
     charm_cmd: str = "charm",
     verbose: bool = False,
+    log: str | Path | None = None,
 ) -> Path:
     """
     Run CHARM, producing ``out_dir/m2m_<subject>``.
 
-    Reuses an existing segmentation unless ``overwrite`` is True.
+    Reuses an existing segmentation unless ``overwrite`` is True. If Python is
+    interrupted (Ctrl+C, Jupyter interrupt) while CHARM runs, CHARM and its
+    child processes are stopped too; the unfinished ``m2m_<subject>`` is redone
+    on the next run. In worker threads, see ``stop_charm``.
 
     Parameters
     ----------
@@ -72,8 +174,13 @@ def run_charm(
         CHARM executable.
 
     verbose: bool
-        Print CHARM's output as it runs. By default it goes to
-        ``out_dir/charm_<subject>.log`` instead, which keeps notebooks short.
+        Print CHARM's output as it runs. By default it goes to a log file
+        instead (see ``log``), which keeps notebooks short.
+
+    log: path | None
+        Log file for CHARM's output (its folder is created). Default:
+        ``out_dir/charm_<subject>.log``. Must not be inside ``m2m_<subject>``,
+        which a re-run deletes. Not with ``verbose=True``.
 
     Returns
     -------
@@ -82,6 +189,14 @@ def run_charm(
     """
     out_dir = Path(out_dir).resolve()
     m2m_dir = out_dir/f"m2m_{subject}"
+
+    if verbose and log is not None:
+        raise ValueError("Pass either log or verbose=True: verbose prints CHARM's output instead of logging it.")
+    if not verbose:
+        # outside m2m_<subject>, which --forcerun may delete
+        log = out_dir/f"charm_{subject}.log" if log is None else Path(log).resolve()
+        if log.is_relative_to(m2m_dir):
+            raise ValueError(f"The log {log} must not be inside {m2m_dir}, which a re-run of CHARM deletes.")
 
     if charm_labeling(m2m_dir).exists() and not overwrite:
         return m2m_dir
@@ -113,16 +228,18 @@ def run_charm(
     # CHARM writes m2m_<subject> into its working directory
     out_dir.mkdir(parents=True, exist_ok=True)
     if verbose:
-        result = subprocess.run(cmd, cwd=out_dir)
+        code, stopped = _run(cmd, out_dir, None, m2m_dir)
     else:
-        # outside m2m_<subject>, which --forcerun may delete
-        log = out_dir/f"charm_{subject}.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
         print(f"Running CHARM (can take 15 min or more). Output: {log}")
         with open(log, "w") as f:
-            result = subprocess.run(cmd, cwd=out_dir, stdout=f, stderr=subprocess.STDOUT)
+            code, stopped = _run(cmd, out_dir, f, m2m_dir)
 
-    if result.returncode != 0:
-        msg = f"CHARM failed with exit code {result.returncode}"
+    if stopped:
+        raise RuntimeError(f"CHARM was stopped (stop_charm). The unfinished {m2m_dir} is redone (--forcerun) on the next run.")
+
+    if code != 0:
+        msg = f"CHARM failed with exit code {code}"
         if not verbose:
             tail = "".join(log.read_text(errors="replace").splitlines(keepends=True)[-20:])
             msg += f". Last lines of {log}:\n{tail}"
@@ -185,7 +302,7 @@ def bem_from_t1(
         Re-run CHARM even if a segmentation exists (slow).
 
     charm_kwargs: dict | None
-        Passed to ``run_charm`` (steps, extra_args, charm_cmd, verbose).
+        Passed to ``run_charm`` (steps, extra_args, charm_cmd, verbose, log).
 
     kwargs: dict
         Passed to ``build_bem`` / ``build_bem_layers``, e.g. ``check=False``
