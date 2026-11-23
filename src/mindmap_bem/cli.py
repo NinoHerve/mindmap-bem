@@ -23,11 +23,13 @@ def _add_fit_args(parser):
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--closing-radius", type=float, default=10.0, help="mm")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing BEM surfaces.")
+    parser.add_argument("--no-check", dest="check", action="store_false",
+                        help="Write the surfaces even if they fail check_bem (folded or not nested).")
 
 
 def _fit_kwargs(args):
     return dict(
-        labels=args.labels, fs_t1=args.fs_t1, brain_mask=args.brain_mask, overwrite=args.overwrite,
+        labels=args.labels, fs_t1=args.fs_t1, brain_mask=args.brain_mask, overwrite=args.overwrite, check=args.check,
         n_smooth=args.n_smooth, iterations=args.iterations, closing_radius=args.closing_radius,
     )
 

@@ -15,8 +15,10 @@ inside out, and each one is constrained to stay a few mm outside the
 previous one, so:
 
 - every surface is closed and manifold with the same topology,
-- the layers are **nested by construction**, with no overlapping skull
+- the layers are **nested during the fit**, with no overlapping skull
   surfaces to fix afterwards (a common failure of the watershed approach),
+  and `build_bem` checks the result before writing: it refuses to write
+  folded or intersecting surfaces (`check=False` / `--no-check` to override),
 - the output is in the format and file names `mne.make_bem_model` reads.
 
 Extracted from [mindmap](https://github.com/NinoHerve/mindmap).
@@ -157,12 +159,32 @@ orientation and voxel size works. All lengths are in mm.
 ## Checking and viewing the result
 
 ```python
-mb.check_bem(layers)          # closed surfaces, each >= 1 mm inside the next
+mb.check_bem(layers)          # closed surfaces without folds, each >= 1 mm inside the next
 mb.viz.plot_bem(bem_dir, t1, backend="pyvista")   # or "matplotlib", "mne", "freeview"
 ```
 
 `plot_bem` takes `fs_t1=<the subject's T1.mgz>` for surfaces written in that frame.
 Always inspect the result before computing a forward model.
+
+## Known issues
+
+**The fit can occasionally fold a few triangles** of a surface onto itself, at
+sharp concave corners such as the skull base. A folded surface is still closed
+and can still be nested, so MNE accepts it without a warning. Whether a fit
+folds depends on small numerical differences, including the VTK version: we
+saw it with VTK 9.3.1 (1 of the 16 subjects of ds000117, and the synthetic head
+of `test_z_floor_in_mm`), but not with VTK 9.4.2 or 9.7.2.
+
+`build_bem` checks every BEM before writing it and raises an error instead of
+writing folded or intersecting surfaces (`check=False` / `--no-check` writes
+them anyway, for inspection). If that happens, first try a recent VTK (≥ 9.4):
+
+```bash
+python -c "import vtk; print(vtk.__version__)"
+pip install -U pyvista vtk
+```
+
+A fit that cannot fold is planned.
 
 ## Tests
 

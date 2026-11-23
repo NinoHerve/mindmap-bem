@@ -188,7 +188,8 @@ def bem_from_t1(
         Passed to ``run_charm`` (steps, extra_args, charm_cmd, verbose).
 
     kwargs: dict
-        Passed to ``build_bem`` / ``build_bem_layers``.
+        Passed to ``build_bem`` / ``build_bem_layers``, e.g. ``check=False``
+        to write surfaces that fail ``check_bem``.
     """
     if subjects_dir is not None:
         bem_dir = Path(subjects_dir)/subject/"bem"

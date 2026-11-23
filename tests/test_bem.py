@@ -133,6 +133,20 @@ def test_check_bem(layers):
     assert mb.layer_gaps(swapped)["inner_skull -> outer_skull"]["n_outside"] > 0
 
 
+def test_count_folds(layers):
+    for mesh in layers.values():
+        assert mb.count_folds(mesh) == 0
+
+    # swap the two ends of an edge: both triangles sharing it turn inside out,
+    # but the mesh is still a closed manifold
+    folded = layers["skin"].copy()
+    u, v = folded.faces.reshape(-1, 4)[0, 1:3]
+    folded.points[[u, v]] = folded.points[[v, u]]
+    assert folded.n_open_edges == 0 and folded.is_manifold
+    assert mb.count_folds(folded) >= 2
+    assert not mb.check_bem({**layers, "skin": folded}, verbose=False)
+
+
 def test_plot_slices(seg, layers):
     pytest.importorskip("matplotlib")
     import matplotlib
@@ -201,6 +215,19 @@ def test_build_bem_scanner_ras(seg, tmp_path):
 
     with pytest.raises(FileExistsError):
         mb.build_bem(seg, tmp_path/"bem", labels=LABELS, **FIT)
+
+
+def test_build_bem_refuses_bad_layers(seg, layers, tmp_path, monkeypatch):
+    swapped = {**layers, "inner_skull": layers["outer_skull"], "outer_skull": layers["inner_skull"]}
+    monkeypatch.setattr("mindmap_bem.bem.build_bem_layers", lambda *a, **kw: swapped)
+
+    with pytest.raises(ValueError, match="check=False"):
+        mb.build_bem(seg, tmp_path/"bem", labels=LABELS)
+    assert not list((tmp_path/"bem").glob("*.surf"))
+
+    with pytest.warns(UserWarning, match="fail check_bem"):
+        mb.build_bem(seg, tmp_path/"bem", labels=LABELS, check=False)
+    assert len(list((tmp_path/"bem").glob("*.surf"))) == 3
 
 
 def test_existing_surfaces_fail_before_fit(fake_charm, tmp_path, monkeypatch):
@@ -401,3 +428,13 @@ def test_cli_run_labels(monkeypatch, tmp_path):
     monkeypatch.setattr("mindmap_bem.cli.bem_from_t1", lambda *a, **kw: seen.update(kw))
     cli_main(["run", "sub01", "t1.nii.gz", "--out", str(tmp_path), "--labels", "my_labels.yml"])
     assert seen["labels"] == "my_labels.yml"
+
+
+
+def test_cli_build_no_check(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr("mindmap_bem.cli.build_bem", lambda *a, **kw: seen.update(kw))
+    cli_main(["build", "seg.nii.gz", "--out", str(tmp_path)])
+    assert seen["check"] is True
+    cli_main(["build", "seg.nii.gz", "--out", str(tmp_path), "--no-check"])
+    assert seen["check"] is False

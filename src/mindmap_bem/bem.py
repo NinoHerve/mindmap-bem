@@ -4,8 +4,9 @@ Description: Build nested 3-layer BEM surfaces from a head segmentation.
 
 Layers are fitted from the inside out: the inner skull is pushed away from the
 brain (optional), the outer skull away from the inner skull, and the skin away
-from the outer skull. Each layer therefore encloses the previous one by
-construction.
+from the outer skull, so each layer should enclose the previous one. The fit
+can still fold or fail to converge, so ``build_bem`` checks the layers
+(``check_bem``) and refuses to write ones that aren't closed and nested.
 
 Author: Nino Herve
 License: MIT
@@ -22,6 +23,7 @@ from mindmap_bem.fitting import fit_surface_to_mask, to_ras
 from mindmap_bem.io import check_bem_files, make_volume_info, polydata_transform, ras_to_tkras, write_bem_surfaces
 from mindmap_bem.labels import read_bem_labels
 from mindmap_bem.masks import close_mask, labels_to_mask, prepare_mask, signed_distance_interpolator
+from mindmap_bem.quality import _bem_report
 
 # mm above the bottom of the field of view removed below each layer
 # (caps surfaces above the neck)
@@ -134,6 +136,7 @@ def build_bem(
     brain_mask: str | Path | nib.spatialimages.SpatialImage | None = None,
     fs_t1: str | Path | None = None,
     overwrite: bool = False,
+    check: bool = True,
     **kwargs,
 ) -> dict[str, pv.PolyData]:
     """
@@ -159,6 +162,12 @@ def build_bem(
           scanner space): that recon's tkRAS, i.e. MNE's "MRI" frame when the
           source space comes from FreeSurfer.
 
+    check: bool
+        Run ``check_bem`` on the fitted layers and raise a ``ValueError``
+        instead of writing them if a surface is folded or the layers aren't
+        nested by at least 1 mm. False writes them anyway (with a warning),
+        e.g. to inspect a failed fit.
+
     labels, brain_mask, kwargs:
         See ``build_bem_layers``.
 
@@ -175,6 +184,16 @@ def build_bem(
         brain_mask = nib.load(brain_mask)
 
     layers = build_bem_layers(seg, labels, brain_mask=brain_mask, **kwargs)
+
+    ok, report = _bem_report(layers)
+    if not ok:
+        report = "\n".join(report)
+        if check:
+            raise ValueError(
+                f"The fitted BEM layers failed check_bem, nothing was written to {out_dir}:\n{report}\n"
+                "Pass check=False (--no-check) to write them anyway for inspection."
+            )
+        warnings.warn(f"Writing BEM layers that fail check_bem:\n{report}", stacklevel=2)
 
     volume_info = None
     if fs_t1 is not None:

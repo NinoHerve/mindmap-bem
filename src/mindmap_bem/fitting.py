@@ -4,9 +4,10 @@ Description: Deform an icosahedral sphere onto a binary mask.
 
 The surface shrink-wraps the mask by following a smoothed signed distance
 field, optionally constrained to stay inside an outer envelope and/or outside
-an inner one. Because every layer is the same deformed icosahedron, the
-topology is guaranteed closed and manifold, and nesting is enforced during the
-fit rather than repaired afterwards.
+an inner one. Every layer is the same deformed icosahedron, so its
+connectivity is always closed and manifold, and nesting is enforced during the
+fit rather than repaired afterwards. The fit can still fold or miss its target,
+so ``build_bem`` checks the result (``check_bem``) before writing it.
 
 Fitting happens in "grid mm" coordinates (voxel index * voxel size) of a
 RAS-reoriented volume, so all parameters are in mm whatever the voxel size or
