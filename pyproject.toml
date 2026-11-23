@@ -29,7 +29,7 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "nibabel>=5.0",
-    "pyvista>=0.43",
+    "pyvista>=0.45",             # voxelize_binary_mask (surface_to_mask)
     "pyyaml>=6.0",
 ]
 

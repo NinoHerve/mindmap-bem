@@ -171,6 +171,26 @@ fixed-orientation forward solutions to their common sources (average referenced)
 and `mb.rdm` / `mb.lnmag` compute the topography and magnitude differences per
 source. Tutorial 2 shows them in use.
 
+## Building your own surfaces
+
+The building blocks of `build_bem_layers` are public, to fit surfaces to masks of
+your own (e.g. one skin around several BEMs):
+
+| function | does |
+|---|---|
+| `to_ras(img)` | reorder a volume's axes to RAS (needed before `z_floor`) |
+| `close_mask(mask, radius, zooms)` | morphological closing with a ball of `radius` mm |
+| `surface_to_mask(surface, img)` | fill a closed surface (scanner RAS) on an image's voxel grid |
+| `signed_distance_interpolator(mask, zooms)` | smoothed signed distance field of a mask, to constrain a fit (`inner_interpolator=` / `outer_interpolator=`) |
+| `fit_surface_to_mask(mask_img, ...)` | fit an ico-5 sphere to a mask, in scanner RAS |
+| `grid_to_world(img)` | transform from "grid mm" (voxel index × voxel size, the fit's frame) to scanner RAS |
+| `polydata_to_faces(mesh)` | `(n_faces, 3)` triangle array of a surface |
+
+```python
+mask = mb.surface_to_mask(layers["outer_skull"], img) | (scalp > 0)
+skin, _ = mb.fit_surface_to_mask(nib.Nifti1Image(mb.close_mask(mask, 10, zooms).astype("uint8"), img.affine))
+```
+
 ## Known issues
 
 **The fit can occasionally fold a few triangles** of a surface onto itself, at

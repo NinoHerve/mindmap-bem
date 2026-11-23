@@ -161,6 +161,37 @@ def grid_to_world(img: nib.spatialimages.SpatialImage) -> np.ndarray:
     return img.affine @ np.diag([*(1 / zooms), 1.0])
 
 
+def surface_to_mask(surface: pv.PolyData, img: nib.spatialimages.SpatialImage) -> np.ndarray:
+    """
+    Fill a closed surface on the voxel grid of an image.
+
+    The inverse of the fit: turns e.g. a BEM layer back into a mask, to combine
+    surfaces with masks (unions, margins) before fitting a new surface.
+
+    Parameters
+    ----------
+    surface: pv.PolyData
+        Closed surface in scanner RAS (mm), the frame of ``img``'s affine.
+        For surfaces in FreeSurfer's tkRAS (e.g. written with ``fs_t1``),
+        transform them back first: ``transform_layers(layers,
+        np.linalg.inv(ras_to_tkras(fs_t1)))``.
+
+    img: nibabel image
+        Defines the voxel grid; any orientation and voxel size.
+
+    Returns
+    -------
+    mask: np.ndarray
+        Boolean array of ``img.shape[:3]``: True for voxels inside the surface.
+    """
+    zooms = tuple(float(z) for z in img.header.get_zooms()[:3])
+    mesh = surface.transform(np.linalg.inv(grid_to_world(img)), inplace=False)    # -> grid mm
+    grid = pv.ImageData(dimensions=img.shape[:3], spacing=zooms, origin=(0.0, 0.0, 0.0))
+    mask = mesh.voxelize_binary_mask(reference_volume=grid)
+
+    return np.asarray(mask.point_data["mask"]).reshape(img.shape[:3], order="F").astype(bool)
+
+
 def fit_surface_to_mask(
     mask: nib.spatialimages.SpatialImage,
     **kwargs,

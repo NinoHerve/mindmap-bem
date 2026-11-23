@@ -200,6 +200,30 @@ def test_z_floor_in_mm():
         assert mesh.points[:, 2].max() > EXPECTED[layer] - 2.0
 
 
+def dice(a, b):
+    return 2 * (a & b).sum() / (a.sum() + b.sum())
+
+
+def test_surface_to_mask(seg, layers):
+    truth = np.asanyarray(seg.dataobj) > 0                       # the head: r <= 40 mm
+    mask = mb.surface_to_mask(layers["skin"], seg)
+    assert mask.shape == seg.shape and mask.dtype == bool
+    assert dice(mask, truth) > 0.97
+
+    # any orientation: the same voxels on a LIA copy of the grid
+    ras, lia = nib.orientations.io_orientation(seg.affine), nib.orientations.axcodes2ornt("LIA")
+    lia_img = seg.as_reoriented(nib.orientations.ornt_transform(ras, lia))
+    back = nib.orientations.apply_orientation(mb.surface_to_mask(layers["skin"], lia_img),
+                                              nib.orientations.ornt_transform(lia, ras))
+    assert np.array_equal(back, mask)
+
+
+def test_helpers_are_public():
+    for name in ("surface_to_mask", "close_mask", "signed_distance_interpolator", "to_ras",
+                 "grid_to_world", "polydata_to_faces"):
+        assert name in mb.__all__ and callable(getattr(mb, name))
+
+
 def test_brain_mask_grid_check(seg):
     other = nib.Nifti1Image(np.zeros((10, 10, 10), dtype=np.uint8), np.eye(4))
     with pytest.raises(ValueError, match="same voxel grid"):
